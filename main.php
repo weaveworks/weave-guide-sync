@@ -1,8 +1,8 @@
 <?php
 /*
-Plugin Name: Mytory Markdown
-Description: This plugin get markdown file path on dropbox public link or github raw content url. It convert markdown file to html, and put it to post content. It also provide real-time conversion editor. This feature don't need dropbox url. You can directly write markdown in editing page and see real-time conversion.
-Author: mytory
+Plugin Name: Weaveworks Guide Sync[Mytory Markdown]
+Description: Autosyncs Guides from Weaveworks guide repo master branch. A fork of Mytory Markdown plugin. [This plugin get markdown file path on dropbox public link or github raw content url. It convert markdown file to html, and put it to post content. It also provide real-time conversion editor. This feature don't need dropbox url. You can directly write markdown in editing page and see real-time conversion.]
+Author: mytory (and mathew@weave.works)
 Version: 1.5
 Author URI: http://mytory.net
 */
@@ -85,7 +85,7 @@ class Mytory_Markdown {
 
         if($query->query_vars['p']){
             // post인 경우
-            $this->post = get_post($query->query_vars['p']);
+			$this->post = get_post($query->query_vars['p']);
             $this->debug_msg[] = "This is post.";
 
         }else if($query->query_vars['page_id']){
@@ -204,19 +204,41 @@ class Mytory_Markdown {
         if($md_content === FALSE){
             return FALSE;
         }
+		
+		// Begin Weaveworks customization
+		$post = array();
+		preg_match('/^title: (.*?)$/m', $md_content, $matches);
+		if (!empty($matches)) {
+			$post['post_title'] = str_replace('"', '', $matches[1]); // Remove any quotes
+		}
+		
+		// Remove the github header
+		$md_content = preg_replace('/^---(.*?)^---/sm', '', $md_content);
+		// Remove any includes
+		$md_content = preg_replace('/^\{%(.*?)%\}$/m', '', $md_content);
+		// Remove any other curly brace stuff
+		$md_content = str_replace("{{", "", $md_content);
+		$md_content = str_replace("}}", "", $md_content);
+		// End Weaveworks customization
 
         if (!function_exists('Markdown')) {
             include_once 'markdown.php';
         }
 
         $content = Markdown($md_content);
-        $post = array();
-        preg_match('/<h1>(.*)<\/h1>/', $content, $matches);
-        if( ! empty($matches)){
-            $post['post_title'] = $matches[1];
-        }else{
-            $post['post_title'] = FALSE;
-        }
+		// Begin Weaveworks customization
+		$this->_scrape_images($content); // Copy all images used by post to this site
+		$content = str_replace('src="/guides', 'src="/wp-content/uploads/guides', $content); // Fix up image URLs
+        if (empty($post)) { // Didn't find a title, so use whatever is between the first set of H1 tags
+        	preg_match('/<h1>(.*?)<\/h1>/', $content, $matches);
+	
+        	if( ! empty($matches)){
+            	$post['post_title'] = $matches[1];
+        	}else{
+            	$post['post_title'] = FALSE;
+        	}
+		}
+		// End Weaveworks customization
         $post['post_content'] = preg_replace('/<h1>(.*)<\/h1>/', '', $content);
 
         return $post;
@@ -265,6 +287,42 @@ class Mytory_Markdown {
         echo json_encode($res);
         die();
     }
+
+
+	/**
+	 * Weaveworks customization
+	 * Download any images that are found inside the HTML for the guide
+	 *
+	 */
+	 
+	 private function _scrape_images($content) {
+		 $bdir = ABSPATH . "/wp-content/uploads/guides";
+		 preg_match_all('/\<img src=\"\/guides([\--z]*)\"/', $content, $matches);
+		 $paths = $matches[1];
+		 //error_log(json_encode($paths));
+		 foreach ($paths as $p) {
+			 preg_match('/^(.*)\/(.*)$/', $p, $matches);
+			 //error_log(json_encode($matches));
+			 $dir = $bdir . $matches[1] . "/";
+			 $fname = $matches[2];
+			 $fullname = $dir . "/" . $fname;
+			 //error_log("dir:fname is " . $dir . " : " . $fname);
+			 if (!file_exists($dir)) {
+				 mkdir($dir, 0777, true);
+			 }
+			 $url = "http://raw.githubusercontent.com/weaveworks/guides/master" . $p;
+			 //error_log($url);
+			 $image = $this->_file_get_contents($url);
+			 $h = fopen($fullname, "w+");
+			 if (!$h) {
+				 error_log("fopen didn't work: " . $fullname);
+			 } else {
+				//error_log("fopened : " . $fullname);
+			 	fwrite($h, $image);
+			 	fclose($h);
+			 }
+		 }
+	 }
 
     /**
      * This function use etag in http header.
@@ -318,7 +376,10 @@ class Mytory_Markdown {
         if (!empty($header['etag'])) {
             return $header['etag'];
         } else {
-            return NULL;
+			// No etag -- set error message
+			$this->error = array('status' => TRUE,
+				'msg' => 'No cache ETag found for markown file. Is the URL correct? If on GitHub, are you linking to the raw file?');
+			return NULL;
         }
     }
 
@@ -335,8 +396,8 @@ class Mytory_Markdown {
             );
             return FALSE;
         }
-        $curl = curl_init();
-        curl_setopt($curl, CURLOPT_URL, $url);
+        $curl = curl_init($url);
+        // curl_setopt($curl, CURLOPT_URL, $url);
         curl_setopt($curl, CURLOPT_HEADER, TRUE);
         curl_setopt($curl, CURLOPT_NOBODY, TRUE);
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, TRUE);
@@ -345,7 +406,7 @@ class Mytory_Markdown {
             curl_setopt($curl, CURLOPT_FOLLOWLOCATION, TRUE);
         }
         $header = curl_exec($curl);
-
+		
         if( ! $this->_check_curl_error($curl)){
             return FALSE;
         }
@@ -381,8 +442,7 @@ class Mytory_Markdown {
         if($curl_info['http_code'] != '200'){
             $this->error = array(
                 'status' => TRUE,
-                'msg' => __('Network Error! HTTP STATUS is ', 'mytory-markdown') . $curl_info['http_code'],
-            );
+                'msg' => __('Network Error! HTTP STATUS is ', 'mytory-markdown') . $curl_info['http_code']);
             if($curl_info['http_code'] == '404'){
                 $this->error['msg'] = 'Incorrect URL. File not found.';
             }
@@ -482,7 +542,7 @@ class Mytory_Markdown {
         if ( ! current_user_can('activate_plugins') ){
             return null;
         }
-        add_submenu_page('options-general.php', 'Mytory Markdown Setting', 'Mytory Markdown', 'activate_plugins', 'mytory-markdown', 
+        add_submenu_page('options-general.php', 'Mytory Markdown Setting', 'Weave Guide Sync', 'activate_plugins', 'mytory-markdown', 
                 array(&$this, 'print_setting_page'));
     }
 
