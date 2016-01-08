@@ -3,7 +3,7 @@
 Plugin Name: Weaveworks Guide Sync[Mytory Markdown]
 Description: Autosyncs Guides from Weaveworks guide repo master branch. A fork of Mytory Markdown plugin. [This plugin get markdown file path on dropbox public link or github raw content url. It convert markdown file to html, and put it to post content. It also provide real-time conversion editor. This feature don't need dropbox url. You can directly write markdown in editing page and see real-time conversion.]
 Author: mytory (and mathew@weave.works)
-Version: 1.5.1
+Version: 1.5.2
 Author URI: http://mytory.net
 */
 
@@ -240,7 +240,7 @@ class Mytory_Markdown {
         	}
 		}
 		// End Weaveworks customization
-        $post['post_content'] = preg_replace('/<h1>(.*)<\/h1>/', '', $content);
+        $post['post_content'] = preg_replace('/<h1>(.*)<\/h1>/', '', $content, 1);
 
         return $post;
     }
