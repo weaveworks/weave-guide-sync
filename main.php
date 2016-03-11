@@ -228,8 +228,11 @@ class Mytory_Markdown {
 
         $content = Markdown($md_content);
 		// Begin Weaveworks customization
-		$this->_scrape_images($content); // Copy all images used by post to this site
-		$content = str_replace('src="/guides', 'src="/wp-content/uploads/guides', $content); // Fix up image URLs
+		if(preg_match("#https?://(raw.githubusercontent.com/[^/]+/[^/]+/[^/]+)#", $markdown_path, $match)) {
+			// Mirror images from github
+			$this->_scrape_images($content, $match[1]); // Copy all images used by post to this site
+			$content = str_replace('src="', 'src="/wp-content/uploads/'.$match[1], $content); // Fix up image URLs
+		}
         if (empty($post)) { // Didn't find a title, so use whatever is between the first set of H1 tags
         	preg_match('/<h1>(.*?)<\/h1>/', $content, $matches);
 	
@@ -296,9 +299,9 @@ class Mytory_Markdown {
 	 *
 	 */
 	 
-	 private function _scrape_images($content) {
-		 $bdir = ABSPATH . "/wp-content/uploads/guides";
-		 preg_match_all('/\<img src=\"\/guides([\--z]*)\"/', $content, $matches);
+	 private function _scrape_images($content, $root) {
+		 $bdir = ABSPATH . "/wp-content/uploads/$root";
+		 preg_match_all('/\<img src="(\/[^"]+)"/', $content, $matches);
 		 $paths = $matches[1];
 		 //error_log(json_encode($paths));
 		 foreach ($paths as $p) {
@@ -311,7 +314,7 @@ class Mytory_Markdown {
 			 if (!file_exists($dir)) {
 				 mkdir($dir, 0777, true);
 			 }
-			 $url = "http://raw.githubusercontent.com/weaveworks/guides/master" . $p;
+			 $url = "http://$root" . $p;
 			 //error_log($url);
 			 $image = $this->_file_get_contents($url);
 			 $h = fopen($fullname, "w+");
